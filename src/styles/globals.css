@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: 'Poppins', sans-serif;
+  transition: color 0.3s, background-color 0.3s;
+}
+
+body {
+  @apply bg-gradient-to-br from-pink-100 via-pink-200 to-pink-300 text-pink-900;
+}
+
+h1, h2 {
+  @apply text-pink-800;
+}
+
+p {
+  @apply text-pink-700;
+}
+
+footer {
+  @apply bg-pink-200 text-pink-800;
+}
+
+* {
+  box-sizing: border-box;
+}
