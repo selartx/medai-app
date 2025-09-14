@@ -17,6 +17,12 @@ const Header: React.FC = () => {
           <Link href="/about" className="text-gray-600 dark:text-gray-300 hover:text-accent transition-colors duration-300">
             About
           </Link>
+          <Link href="/login" className="text-gray-600 dark:text-gray-300 hover:text-accent transition-colors duration-300">
+            Log In
+          </Link>
+          <Link href="/signup" className="bg-pink-500 hover:bg-pink-700 text-white font-bold py-2 px-4 rounded">
+            Sign Up
+          </Link>
         </div>
       </nav>
     </header>

@@ -25,10 +25,22 @@ function MyApp({ Component, pageProps }: AppProps) {
   return (
     <div className={pageBg}>
       <header className={headerClass}>
-        <h1 className={isStart ? 'text-2xl font-bold text-purple-800' : 'text-2xl font-bold text-pink-900'}>MedAI</h1>
+        <h1 className={isStart ? 'text-2xl font-bold text-purple-800' : 'text-2xl font-bold text-pink-900'}>
+          MedAI
+        </h1>
         <div className="flex space-x-4">
-          <button className={loginBtnClass}>Log In</button>
-          <button className={signupBtnClass}>Sign Up</button>
+          <button
+            className={loginBtnClass}
+            onClick={() => router.push('/login')}
+          >
+            Log In
+          </button>
+          <button
+            className={signupBtnClass}
+            onClick={() => router.push('/signup')}
+          >
+            Sign Up
+          </button>
         </div>
       </header>
       <Component {...pageProps} />
