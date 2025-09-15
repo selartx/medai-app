@@ -1,21 +1,58 @@
-import Link from 'next/link';
+﻿import Link from 'next/link';
 import React, { useState } from 'react';
 
 export default function StartPage() {
   const [messages, setMessages] = useState<Array<{ id: number; role: 'user' | 'assistant'; content: string }>>([
     { id: 1, role: 'assistant', content: 'Welcome to MedAI! Ready for a quick quiz or to chat about a topic?' },
-    { id: 2, role: 'user', content: 'Let’s do a quick anatomy quiz.' },
+    { id: 2, role: 'user', content: "Let's do a quick anatomy quiz." },
     { id: 3, role: 'assistant', content: 'Great! First question: Which cranial nerve controls the lateral rectus muscle?' },
   ]);
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), role: 'user', content: input.trim() },
-    ]);
+  const handleSend = async () => {
+    const trimmed = input.trim();
+    if (!trimmed || isLoading) return;
+
+    const userMessage = { id: Date.now(), role: 'user' as const, content: trimmed };
+    setMessages((prev) => [...prev, userMessage]);
     setInput('');
+
+    try {
+      setIsLoading(true);
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ input: trimmed }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'AI request failed');
+      }
+
+      const data = (await response.json()) as { response?: string };
+      const aiMessage = {
+        id: Date.now() + 1,
+        role: 'assistant' as const,
+        content: data?.response?.trim() || 'Sorry, I could not think of a good answer right now.',
+      };
+
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 2,
+          role: 'assistant',
+          content: 'Oops! Something went wrong while talking to the AI. Please try again.',
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -65,6 +102,13 @@ export default function StartPage() {
                 </div>
               </div>
             ))}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="max-w-[70%] rounded-2xl rounded-bl-md border border-purple-200 bg-white/80 px-4 py-3 text-sm md:text-base text-slate-900 shadow-sm">
+                  Thinking...
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Composer */}
@@ -76,19 +120,21 @@ export default function StartPage() {
                 rows={1}
                 placeholder="Send a message or type /quiz to start"
                 className="flex-1 resize-none rounded-xl border border-purple-300 bg-white/90 px-3 py-2 text-sm md:text-base shadow-sm placeholder:text-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-400/60"
+                disabled={isLoading}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    handleSend();
+                    void handleSend();
                   }
                 }}
               />
               <button
                 type="button"
-                onClick={handleSend}
-                className="inline-flex items-center justify-center rounded-full bg-purple-600 text-white px-4 py-2 font-semibold shadow-sm hover:bg-purple-700 active:bg-purple-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+                onClick={() => void handleSend()}
+                disabled={!input.trim() || isLoading}
+                className="inline-flex items-center justify-center rounded-full bg-purple-600 text-white px-4 py-2 font-semibold shadow-sm hover:bg-purple-700 active:bg-purple-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 disabled:opacity-50"
               >
-                Send
+                {isLoading ? 'Sending...' : 'Send'}
               </button>
             </div>
           </div>
