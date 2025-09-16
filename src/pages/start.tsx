@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import React, { useState, useEffect, useRef } from 'react';
+import { Conversation, conversationManager } from '../utils/aiHelper';
 
 export default function StartPage() {
-  const [messages, setMessages] = useState<Array<{ id: number; role: 'user' | 'assistant'; content: string }>>([
+  const [messages, setMessages] = useState<Array<{ id: number; role: 'user' | 'assistant'; content: string; timestamp?: number }>>([
     { id: 1, role: 'assistant', content: 'Welcome to MedAI! Ready for a quick quiz or to chat about a topic?' },
   ]);
   const [input, setInput] = useState('');
@@ -10,29 +11,54 @@ export default function StartPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [typingText, setTypingText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load chat history from localStorage on component mount
+  // Load conversation history on component mount
   useEffect(() => {
-    const savedMessages = localStorage.getItem('medai-chat-history');
-    if (savedMessages) {
-      try {
-        const parsedMessages = JSON.parse(savedMessages);
-        if (Array.isArray(parsedMessages) && parsedMessages.length > 0) {
-          setMessages(parsedMessages);
-        }
-      } catch (error) {
-        console.error('Error loading chat history:', error);
+    const savedConversations = conversationManager.getAllConversations();
+    setConversations(savedConversations);
+    
+    // Try to load current conversation or create new one
+    const currentConvId = localStorage.getItem('medai-current-conversation');
+    if (currentConvId) {
+      const foundConv = savedConversations.find(conv => conv.id === currentConvId);
+      if (foundConv) {
+        setCurrentConversation(foundConv);
+        setMessages(foundConv.messages);
+        return;
       }
     }
+    
+    // Create new conversation if none exists or current one not found
+    const newConv = conversationManager.createNewConversation();
+    setCurrentConversation(newConv);
+    setMessages(newConv.messages);
+    localStorage.setItem('medai-current-conversation', newConv.id);
   }, []);
 
-  // Save chat history to localStorage whenever messages change
+  // Save current conversation whenever messages change
   useEffect(() => {
-    localStorage.setItem('medai-chat-history', JSON.stringify(messages));
-  }, [messages]);
+    if (currentConversation && messages.length > 0) {
+      const updatedConv = {
+        ...currentConversation,
+        messages: messages.map(msg => ({
+          ...msg,
+          timestamp: msg.timestamp || Date.now()
+        }))
+      };
+      
+      conversationManager.saveConversation(updatedConv);
+      setCurrentConversation(updatedConv);
+      
+      // Update conversations list
+      const allConversations = conversationManager.getAllConversations();
+      setConversations(allConversations);
+    }
+  }, [messages, currentConversation]);
 
   // Auto-scroll to bottom when messages change, but not during typing
   useEffect(() => {
@@ -44,7 +70,6 @@ export default function StartPage() {
   // Auto-scroll once when typing starts
   useEffect(() => {
     if (isTyping && typingText === '') {
-      // Only scroll when typing just started (typingText is empty)
       scrollToBottom();
     }
   }, [isTyping]);
@@ -63,7 +88,7 @@ export default function StartPage() {
       if (i < text.length) {
         setTypingText(prev => prev + text.charAt(i));
         i++;
-        setTimeout(typeChar, 8); // Much faster: 8ms instead of 20ms
+        setTimeout(typeChar, 8);
       } else {
         setIsTyping(false);
         setTypingText('');
@@ -83,7 +108,7 @@ export default function StartPage() {
     // Add user message immediately
     const newMessages = [
       ...messages,
-      { id: Date.now(), role: 'user' as const, content: userMessage },
+      { id: Date.now(), role: 'user' as const, content: userMessage, timestamp: Date.now() },
     ];
     setMessages(newMessages);
 
@@ -103,7 +128,7 @@ export default function StartPage() {
         },
         body: JSON.stringify({ 
           input: userMessage,
-          conversationHistory: conversationHistory.slice(0, -1) // Don't include the message we just added
+          conversationHistory: conversationHistory.slice(0, -1)
         }),
       });
 
@@ -114,23 +139,21 @@ export default function StartPage() {
         typeMessage(data.response, () => {
           setMessages((prev) => [
             ...prev,
-            { id: Date.now(), role: 'assistant', content: data.response },
+            { id: Date.now(), role: 'assistant', content: data.response, timestamp: Date.now() },
           ]);
         });
       } else {
         // Handle different types of errors with specific messages
         let errorMessage = data.error || 'Sorry, I encountered an error. Please try again.';
         
-        // If it's a retryable error (like overloaded), suggest waiting
         if (data.retry) {
           errorMessage += ' You can try again in a few seconds.';
         }
         
-        // Use typing animation for error messages too
         typeMessage(errorMessage, () => {
           setMessages((prev) => [
             ...prev,
-            { id: Date.now(), role: 'assistant', content: errorMessage },
+            { id: Date.now(), role: 'assistant', content: errorMessage, timestamp: Date.now() },
           ]);
         });
       }
@@ -141,7 +164,7 @@ export default function StartPage() {
       typeMessage(errorMessage, () => {
         setMessages((prev) => [
           ...prev,
-          { id: Date.now(), role: 'assistant', content: errorMessage },
+          { id: Date.now(), role: 'assistant', content: errorMessage, timestamp: Date.now() },
         ]);
       });
     } finally {
@@ -149,8 +172,39 @@ export default function StartPage() {
     }
   };
 
-  const exportChatHistory = () => {
-    const chatText = messages
+  const startNewConversation = () => {
+    const newConv = conversationManager.createNewConversation();
+    setCurrentConversation(newConv);
+    setMessages(newConv.messages);
+    localStorage.setItem('medai-current-conversation', newConv.id);
+    setShowHistory(false);
+  };
+
+  const loadConversation = (conversation: Conversation) => {
+    setCurrentConversation(conversation);
+    setMessages(conversation.messages);
+    localStorage.setItem('medai-current-conversation', conversation.id);
+    setShowHistory(false);
+  };
+
+  const deleteConversation = (conversationId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent loading the conversation
+    
+    if (conversations.length <= 1) {
+      // If this is the last conversation, create a new one
+      startNewConversation();
+    } else if (currentConversation?.id === conversationId) {
+      // If deleting current conversation, switch to the most recent other one
+      const otherConversations = conversations.filter(conv => conv.id !== conversationId);
+      loadConversation(otherConversations[0]);
+    }
+    
+    conversationManager.deleteConversation(conversationId);
+    setConversations(conversationManager.getAllConversations());
+  };
+
+  const exportConversation = (conversation: Conversation) => {
+    const chatText = conversation.messages
       .filter(msg => msg.id !== 1) // Exclude welcome message
       .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
       .join('\n\n');
@@ -159,18 +213,31 @@ export default function StartPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `medai-chat-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = `medai-${conversation.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-${new Date(conversation.createdAt).toISOString().split('T')[0]}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  const clearChatHistory = () => {
-    const welcomeMessage = [{ id: 1, role: 'assistant' as const, content: 'Welcome to MedAI! Ready for a quick quiz or to chat about a topic?' }];
-    setMessages(welcomeMessage);
-    localStorage.setItem('medai-chat-history', JSON.stringify(welcomeMessage));
-    setShowHistory(false);
+  const clearAllConversations = () => {
+    conversationManager.clearAllConversations();
+    startNewConversation();
+    setConversations([]);
+  };
+
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    
+    if (diffInHours < 24) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (diffInHours < 24 * 7) {
+      return date.toLocaleDateString([], { weekday: 'short' });
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
   };
 
   return (
@@ -205,7 +272,7 @@ export default function StartPage() {
             </div>
             <button
               type="button"
-              onClick={() => setMessages([{ id: 1, role: 'assistant', content: 'Welcome to MedAI! Ready for a quick quiz or to chat about a topic?' }])}
+              onClick={startNewConversation}
               className="hidden md:inline-flex items-center justify-center rounded-full border border-purple-300 bg-white/70 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-50"
             >
               New Chat
@@ -287,69 +354,150 @@ export default function StartPage() {
           </div>
         </section>
 
-        {/* Chat History Modal */}
+        {/* Conversation History Modal */}
         {showHistory && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[85vh] overflow-hidden">
               {/* Modal Header */}
               <div className="flex items-center justify-between p-6 border-b border-purple-200">
-                <h2 className="text-xl font-semibold text-purple-900">Chat History</h2>
-                <button
-                  onClick={() => setShowHistory(false)}
-                  className="text-purple-500 hover:text-purple-700 text-2xl"
-                >
-                  ×
-                </button>
+                <div>
+                  <h2 className="text-xl font-semibold text-purple-900">Conversation History</h2>
+                  <p className="text-sm text-purple-600 mt-1">Switch between your previous conversations</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={startNewConversation}
+                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700"
+                  >
+                    ➕ New Chat
+                  </button>
+                  <button
+                    onClick={() => setShowHistory(false)}
+                    className="text-purple-500 hover:text-purple-700 text-2xl"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
 
               {/* Modal Content */}
-              <div className="p-6 overflow-y-auto max-h-[60vh]">
-                {messages.length <= 1 ? (
-                  <div className="text-center text-purple-600 py-8">
-                    <p>No conversation history yet.</p>
-                    <p className="text-sm text-purple-500 mt-2">Start chatting to see your conversation history here!</p>
+              <div className="flex h-[70vh]">
+                {/* Conversations List */}
+                <div className="w-1/3 border-r border-purple-200 bg-purple-50/50">
+                  <div className="p-4 border-b border-purple-200 bg-purple-100/50">
+                    <h3 className="font-medium text-purple-900">Your Conversations</h3>
+                    <p className="text-xs text-purple-600 mt-1">{conversations.length} total</p>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    {messages.filter(msg => msg.id !== 1).map((msg, index) => (
-                      <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                          msg.role === 'user' 
-                            ? 'bg-purple-600 text-white' 
-                            : 'bg-purple-50 text-purple-900 border border-purple-200'
-                        }`}>
-                          <div className="text-xs opacity-70 mb-1">
-                            {msg.role === 'user' ? 'You' : 'MedAI'}
-                          </div>
-                          <div className="text-sm">{msg.content}</div>
-                        </div>
+                  <div className="overflow-y-auto h-full">
+                    {conversations.length === 0 ? (
+                      <div className="p-6 text-center text-purple-600">
+                        <p>No conversations yet.</p>
+                        <p className="text-sm text-purple-500 mt-2">Start chatting to create your first conversation!</p>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="space-y-1 p-2">
+                        {conversations.map((conv) => (
+                          <div
+                            key={conv.id}
+                            onClick={() => loadConversation(conv)}
+                            className={`group relative cursor-pointer rounded-lg p-3 hover:bg-purple-100 transition-colors ${
+                              currentConversation?.id === conv.id ? 'bg-purple-200 ring-2 ring-purple-300' : ''
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-purple-900 truncate">
+                                  {conv.title}
+                                </p>
+                                <p className="text-xs text-purple-600 mt-1">
+                                  {formatDate(conv.updatedAt)} • {conv.messages.length - 1} messages
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    exportConversation(conv);
+                                  }}
+                                  className="p-1 hover:bg-purple-200 rounded text-purple-600"
+                                  title="Export conversation"
+                                >
+                                  📄
+                                </button>
+                                <button
+                                  onClick={(e) => deleteConversation(conv.id, e)}
+                                  className="p-1 hover:bg-red-100 rounded text-red-600"
+                                  title="Delete conversation"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
+
+                {/* Conversation Preview */}
+                <div className="flex-1 flex flex-col">
+                  {currentConversation ? (
+                    <>
+                      <div className="p-4 border-b border-purple-200 bg-white">
+                        <h3 className="font-medium text-purple-900">{currentConversation.title}</h3>
+                        <p className="text-xs text-purple-600 mt-1">
+                          Created {new Date(currentConversation.createdAt).toLocaleDateString()} • 
+                          Last updated {formatDate(currentConversation.updatedAt)}
+                        </p>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                        {currentConversation.messages.filter(msg => msg.id !== 1).map((msg) => (
+                          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                              msg.role === 'user' 
+                                ? 'bg-purple-600 text-white' 
+                                : 'bg-purple-50 text-purple-900 border border-purple-200'
+                            }`}>
+                              <div className="text-xs opacity-70 mb-1">
+                                {msg.role === 'user' ? 'You' : 'MedAI'}
+                              </div>
+                              <div>{msg.content}</div>
+                            </div>
+                          </div>
+                        ))}
+                        {currentConversation.messages.length <= 1 && (
+                          <div className="text-center text-purple-600 py-8">
+                            <p>This conversation hasn't started yet.</p>
+                            <p className="text-sm text-purple-500 mt-2">Click "Load Conversation" to continue chatting!</p>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-purple-600">
+                      <div className="text-center">
+                        <p>Select a conversation to preview</p>
+                        <p className="text-sm text-purple-500 mt-2">Choose from your conversation history on the left</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Modal Footer */}
-              <div className="flex justify-between items-center p-6 border-t border-purple-200 bg-purple-50">
+              <div className="flex justify-between items-center p-4 border-t border-purple-200 bg-purple-50">
                 <div className="text-sm text-purple-600">
-                  {messages.length <= 1 ? 'No messages' : `${messages.length - 1} messages`}
+                  {conversations.length === 0 ? 'No conversations' : `${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`}
                 </div>
                 <div className="flex gap-3">
-                  {messages.length > 1 && (
-                    <>
-                      <button
-                        onClick={exportChatHistory}
-                        className="px-4 py-2 text-sm font-medium text-purple-700 bg-white border border-purple-300 rounded-lg hover:bg-purple-50"
-                      >
-                        📄 Export
-                      </button>
-                      <button
-                        onClick={clearChatHistory}
-                        className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50"
-                      >
-                        🗑️ Clear
-                      </button>
-                    </>
+                  {conversations.length > 0 && (
+                    <button
+                      onClick={clearAllConversations}
+                      className="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50"
+                    >
+                      🗑️ Clear All
+                    </button>
                   )}
                   <button
                     onClick={() => setShowHistory(false)}
