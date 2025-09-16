@@ -1,4 +1,4 @@
-﻿import Link from 'next/link';
+import Link from 'next/link';
 import React, { useState, useEffect, useRef } from 'react';
 
 export default function StartPage() {
@@ -271,7 +271,7 @@ export default function StartPage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    handleSend();
+                    void handleSend();
                   }
                 }}
               />
