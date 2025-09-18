@@ -1,8 +1,12 @@
 import Link from 'next/link';
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/router';
+import { useAuth } from '../contexts/AuthContext';
 import { Conversation, conversationManager } from '../utils/aiHelper';
 
 export default function StartPage() {
+  const { currentUser, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [messages, setMessages] = useState<Array<{ id: number; role: 'user' | 'assistant'; content: string; timestamp?: number }>>([
     { id: 1, role: 'assistant', content: 'Welcome to MedAI! Ready for a quick quiz or to chat about a topic?' },
   ]);
@@ -16,6 +20,19 @@ export default function StartPage() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // Authentication check - redirect if not authenticated or not verified
+  useEffect(() => {
+    if (!authLoading) {
+      if (!currentUser) {
+        router.push('/login');
+        return;
+      }
+      
+      // Note: We no longer need to check emailVerified here since
+      // users can only log in after they've verified their email
+    }
+  }, [currentUser, authLoading, router]);
 
   // Load conversation history on component mount
   useEffect(() => {
@@ -52,13 +69,12 @@ export default function StartPage() {
       };
       
       conversationManager.saveConversation(updatedConv);
-      setCurrentConversation(updatedConv);
       
       // Update conversations list
       const allConversations = conversationManager.getAllConversations();
       setConversations(allConversations);
     }
-  }, [messages, currentConversation]);
+  }, [messages]); // Removed currentConversation dependency to prevent infinite loop
 
   // Auto-scroll to bottom when messages change, but not during typing
   useEffect(() => {

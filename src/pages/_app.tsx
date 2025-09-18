@@ -1,7 +1,8 @@
 import '../styles/globals.css';
 import { AppProps } from 'next/app';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
+import { AuthProvider } from '../contexts/AuthContext';
+import Header from '../components/Header';
 
 function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
@@ -11,40 +12,13 @@ function MyApp({ Component, pageProps }: AppProps) {
     ? 'min-h-screen bg-gradient-to-b from-violet-50 via-purple-50 to-purple-100 text-slate-900'
     : 'min-h-screen bg-gradient-to-br from-pink-100 via-pink-200 to-pink-300 text-pink-900';
 
-  const headerClass = (isStart
-    ? 'bg-purple-100 border-b border-purple-200'
-    : 'bg-pink-200 border-b border-pink-300')
-    + ' flex justify-between items-center px-6 py-4 shadow-md relative z-50'; // z-50: üzerine bir şey binmesin
-
-  const loginBtnClass = isStart
-    ? 'bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-purple-700 transition'
-    : 'bg-pink-400 text-white font-semibold py-2 px-4 rounded-lg hover:bg-pink-500 transition';
-
-  const signupBtnClass = isStart
-    ? 'bg-white text-purple-700 font-semibold py-2 px-4 rounded-lg border border-purple-400 hover:bg-purple-50 transition'
-    : 'bg-white text-pink-500 font-semibold py-2 px-4 rounded-lg border border-pink-400 hover:bg-pink-100 transition';
-
   return (
-    <div className={pageBg}>
-      <header className={headerClass}>
-        <Link href="/" legacyBehavior>
-          <a className={isStart ? 'text-2xl font-bold text-purple-800' : 'text-2xl font-bold text-pink-900'}>
-            MedAI
-          </a>
-        </Link>
-
-        <div className="flex space-x-4">
-          <button className={loginBtnClass} onClick={() => router.push('/login')}>
-            Log In
-          </button>
-          <button className={signupBtnClass} onClick={() => router.push('/signup')}>
-            Sign Up
-          </button>
-        </div>
-      </header>
-
-      <Component {...pageProps} />
-    </div>
+    <AuthProvider>
+      <div className={pageBg}>
+        <Header isStart={isStart} />
+        <Component {...pageProps} />
+      </div>
+    </AuthProvider>
   );
 }
 

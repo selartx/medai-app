@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "firebase": "^12.2.1",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "react-firebase-hooks": "^5.1.1",
     "roboto-fontface": "^0.10.0"
   },
   "devDependencies": {
