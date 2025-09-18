@@ -4,7 +4,7 @@ import Header from '../components/Header';
 const About: React.FC = () => {
     return (
         <div className="bg-light-surface dark:bg-dark-surface min-h-screen transition-colors duration-300">
-            <Header />
+            <Header isStart={false} />
             <main className="container mx-auto py-12 px-6">
                 <section className="max-w-3xl mx-auto">
                     <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-50 mb-6 transition-colors duration-300">

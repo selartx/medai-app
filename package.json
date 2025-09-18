@@ -10,10 +10,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-<<<<<<< HEAD
     "firebase": "^12.2.1",
-=======
->>>>>>> aa4d414f4aacf1b2f92b23bcfcbbdd6b4c9f5848
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
