@@ -9,7 +9,8 @@ import {
   GoogleAuthProvider,
   onAuthStateChanged,
   updateProfile,
-  sendEmailVerification
+  sendEmailVerification,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 
@@ -20,9 +21,11 @@ interface AuthContextType {
   createAccountOnly: (email: string, password: string, displayName?: string) => Promise<void>;
   checkEmailVerified: (email: string, password: string) => Promise<boolean>;
   login: (email: string, password: string) => Promise<any>;
+  loginWithVerificationCheck: (email: string, password: string) => Promise<any>;
   loginWithGoogle: () => Promise<any>;
   logout: () => Promise<void>;
   sendVerificationEmail: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -70,7 +73,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth);
   }
 
-  // Check if email is verified without creating a persistent session
+  // Login with verification check - returns user if verified, throws error if not
+  async function loginWithVerificationCheck(email: string, password: string) {
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    
+    if (!result.user.emailVerified) {
+      // Sign out immediately if not verified
+      await signOut(auth);
+      throw new Error('EMAIL_NOT_VERIFIED');
+    }
+    
+    return result;
+  }
+
+  // Check if email is verified without creating a persistent session (for verification page resend)
   async function checkEmailVerified(email: string, password: string): Promise<boolean> {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
@@ -85,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Login with email and password
+  // Basic login function (for backwards compatibility or special cases)
   function login(email: string, password: string) {
     return signInWithEmailAndPassword(auth, email, password);
   }
@@ -110,6 +126,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // Reset password
+  async function resetPassword(email: string) {
+    return sendPasswordResetEmail(auth, email);
+  }
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -126,9 +147,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     createAccountOnly,
     checkEmailVerified,
     login,
+    loginWithVerificationCheck,
     loginWithGoogle,
     logout,
     sendVerificationEmail,
+    resetPassword,
   };
 
   return (

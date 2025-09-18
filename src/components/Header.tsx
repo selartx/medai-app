@@ -9,7 +9,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ isStart }) => {
   const router = useRouter();
-  const { currentUser, logout, sendVerificationEmail } = useAuth();
+  const { currentUser, logout } = useAuth();
 
   const headerClass = (isStart
     ? 'bg-purple-100 border-b border-purple-200'
@@ -49,16 +49,6 @@ const Header: React.FC<HeaderProps> = ({ isStart }) => {
     router.push('/signup');
   }
 
-  async function handleResendVerification() {
-    try {
-      await sendVerificationEmail();
-      alert('Verification email sent! Please check your inbox.');
-    } catch (error) {
-      console.error('Failed to send verification email:', error);
-      alert('Failed to send verification email. Please try again.');
-    }
-  }
-
   return (
     <header className={headerClass}>
       <Link href="/" legacyBehavior>
@@ -69,24 +59,14 @@ const Header: React.FC<HeaderProps> = ({ isStart }) => {
 
       <div className="flex items-center space-x-4">
         {currentUser ? (
-          // Logged in user
+          // Logged in user (only verified users can reach this state)
           <>
             <div className="flex items-center space-x-3">
               <div className="text-right">
                 <span className={userTextClass}>
                   Welcome, {currentUser.displayName || currentUser.email?.split('@')[0]}!
                 </span>
-                {!currentUser.emailVerified && (
-                  <div className="text-xs text-orange-600">
-                    Email not verified
-                    <button 
-                      onClick={handleResendVerification}
-                      className="ml-2 text-orange-700 hover:text-orange-800 underline"
-                    >
-                      Resend
-                    </button>
-                  </div>
-                )}
+                {/* Note: We no longer show unverified status since only verified users can log in */}
               </div>
               {currentUser.photoURL && (
                 <img

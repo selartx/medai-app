@@ -10,18 +10,89 @@ const SignupPage: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPasswordRequirements, setShowPasswordRequirements] = useState(false);
   const { createAccountOnly, loginWithGoogle } = useAuth();
   const router = useRouter();
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // Email validation regex
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
 
-    if (password !== confirmPassword) {
-      return setError('Passwords do not match');
+  // Password strength validation
+  const validatePassword = (password: string) => {
+    const minLength = 8;
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+    if (password.length < minLength) {
+      return 'Password must be at least 8 characters long';
+    }
+    if (!hasUpperCase) {
+      return 'Password must contain at least one uppercase letter';
+    }
+    if (!hasLowerCase) {
+      return 'Password must contain at least one lowercase letter';
+    }
+    if (!hasNumbers) {
+      return 'Password must contain at least one number';
+    }
+    if (!hasSpecialChar) {
+      return 'Password must contain at least one special character (!@#$%^&*(),.?":{}|<>)';
+    }
+    return null;
+  };
+
+  // Comprehensive form validation
+  const validateForm = () => {
+    if (!displayName.trim()) {
+      setError('Please enter your full name');
+      return false;
     }
 
-    if (password.length < 6) {
-      return setError('Password must be at least 6 characters');
+    if (displayName.trim().length < 2) {
+      setError('Name must be at least 2 characters long');
+      return false;
+    }
+    
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address');
+      return false;
+    }
+    
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
+      return false;
+    }
+    
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return false;
+    }
+    
+    return true;
+  };
+
+  // Get password requirements status for visual feedback
+  const getPasswordRequirements = (password: string) => {
+    return {
+      minLength: password.length >= 8,
+      hasUpperCase: /[A-Z]/.test(password),
+      hasLowerCase: /[a-z]/.test(password),
+      hasNumbers: /\d/.test(password),
+      hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password)
+    };
+  };
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
     }
 
     try {
@@ -31,9 +102,9 @@ const SignupPage: React.FC = () => {
       router.push(`/verify-email?email=${encodeURIComponent(email)}`);
     } catch (error: any) {
       setError('Failed to create account: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   async function handleGoogleSignup() {
@@ -41,12 +112,13 @@ const SignupPage: React.FC = () => {
       setError('');
       setLoading(true);
       await loginWithGoogle();
+      // Google accounts are usually pre-verified, redirect to start
       router.push('/start');
     } catch (error: any) {
       setError('Failed to sign up with Google: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   return (
@@ -76,8 +148,10 @@ const SignupPage: React.FC = () => {
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+              placeholder="Enter your full name"
             />
           </div>
+          
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700">
               Email address
@@ -91,8 +165,10 @@ const SignupPage: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+              placeholder="Enter your email"
             />
           </div>
+          
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700">
               Password
@@ -105,9 +181,47 @@ const SignupPage: React.FC = () => {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onFocus={() => setShowPasswordRequirements(true)}
+              onBlur={() => setShowPasswordRequirements(false)}
               className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+              placeholder="Create a strong password"
             />
+            
+            {/* Password Requirements */}
+            {showPasswordRequirements && password && (
+              <div className="mt-2 p-3 bg-gray-50 rounded-md border">
+                <p className="text-sm font-medium text-gray-700 mb-2">Password must contain:</p>
+                {(() => {
+                  const requirements = getPasswordRequirements(password);
+                  return (
+                    <ul className="space-y-1 text-xs">
+                      <li className={`flex items-center ${requirements.minLength ? 'text-green-600' : 'text-gray-500'}`}>
+                        <span className="mr-2">{requirements.minLength ? '✓' : '○'}</span>
+                        At least 8 characters
+                      </li>
+                      <li className={`flex items-center ${requirements.hasUpperCase ? 'text-green-600' : 'text-gray-500'}`}>
+                        <span className="mr-2">{requirements.hasUpperCase ? '✓' : '○'}</span>
+                        One uppercase letter (A-Z)
+                      </li>
+                      <li className={`flex items-center ${requirements.hasLowerCase ? 'text-green-600' : 'text-gray-500'}`}>
+                        <span className="mr-2">{requirements.hasLowerCase ? '✓' : '○'}</span>
+                        One lowercase letter (a-z)
+                      </li>
+                      <li className={`flex items-center ${requirements.hasNumbers ? 'text-green-600' : 'text-gray-500'}`}>
+                        <span className="mr-2">{requirements.hasNumbers ? '✓' : '○'}</span>
+                        One number (0-9)
+                      </li>
+                      <li className={`flex items-center ${requirements.hasSpecialChar ? 'text-green-600' : 'text-gray-500'}`}>
+                        <span className="mr-2">{requirements.hasSpecialChar ? '✓' : '○'}</span>
+                        One special character (!@#$%^&*...)
+                      </li>
+                    </ul>
+                  );
+                })()}
+              </div>
+            )}
           </div>
+          
           <div>
             <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700">
               Confirm Password
@@ -121,15 +235,17 @@ const SignupPage: React.FC = () => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-pink-500 focus:border-pink-500 sm:text-sm"
+              placeholder="Confirm your password"
             />
           </div>
+          
           <div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-pink-600 border border-transparent rounded-md shadow-sm hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50"
+              className="w-full px-4 py-2 text-sm font-medium text-white bg-pink-600 border border-transparent rounded-md shadow-sm hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Creating Account...' : 'Sign up'}
+              {loading ? 'Creating Account...' : 'Create Account'}
             </button>
           </div>
         </form>
@@ -146,7 +262,7 @@ const SignupPage: React.FC = () => {
         <button
           onClick={handleGoogleSignup}
           disabled={loading}
-          className="w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50"
+          className="w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? 'Creating Account...' : 'Sign up with Google'}
         </button>
