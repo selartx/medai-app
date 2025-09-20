@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -11,8 +11,15 @@ const SignupPage: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPasswordRequirements, setShowPasswordRequirements] = useState(false);
-  const { createAccountOnly, loginWithGoogle } = useAuth();
+  const { currentUser, loading: authLoading, createAccountOnly, loginWithGoogle } = useAuth();
   const router = useRouter();
+
+  // Redirect authenticated users to start page
+  useEffect(() => {
+    if (!authLoading && currentUser) {
+      router.replace('/start');
+    }
+  }, [currentUser, authLoading, router]);
 
   // Email validation regex
   const validateEmail = (email: string) => {
@@ -119,6 +126,24 @@ const SignupPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600"></div>
+      </div>
+    );
+  }
+
+  // Don't render signup page if user is authenticated (redirect is happening)
+  if (currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600"></div>
+      </div>
+    );
   }
 
   return (

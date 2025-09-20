@@ -1,6 +1,36 @@
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { useAuth } from '../contexts/AuthContext';
 
 const Home = () => {
+  const { currentUser, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  // Redirect authenticated users to start page
+  useEffect(() => {
+    if (!authLoading && currentUser) {
+      router.replace('/start');
+    }
+  }, [currentUser, authLoading, router]);
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-pink-100 via-pink-200 to-pink-300">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600"></div>
+      </div>
+    );
+  }
+
+  // Don't render the landing page if user is authenticated (redirect is happening)
+  if (currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-pink-100 via-pink-200 to-pink-300">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600"></div>
+      </div>
+    );
+  }
   return (
     <div className="snap-y snap-mandatory h-screen overflow-y-scroll">
       {/* Section 1: Welcome */}

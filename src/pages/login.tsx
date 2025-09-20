@@ -13,8 +13,15 @@ const LoginPage: React.FC = () => {
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
-  const { login, loginWithGoogle, logout, checkEmailVerified, loginWithVerificationCheck, resetPassword } = useAuth();
+  const { currentUser, loading: authLoading, login, loginWithGoogle, logout, checkEmailVerified, loginWithVerificationCheck, resetPassword } = useAuth();
   const router = useRouter();
+
+  // Redirect authenticated users to start page
+  useEffect(() => {
+    if (!authLoading && currentUser) {
+      router.replace('/start');
+    }
+  }, [currentUser, authLoading, router]);
 
   // Check for verification success message
   useEffect(() => {
@@ -118,6 +125,24 @@ const LoginPage: React.FC = () => {
     setShowResetModal(false);
     setResetEmail('');
     setResetMessage('');
+  }
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600"></div>
+      </div>
+    );
+  }
+
+  // Don't render login page if user is authenticated (redirect is happening)
+  if (currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600"></div>
+      </div>
+    );
   }
 
   return (

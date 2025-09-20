@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.2.2",
     "firebase": "^12.2.1",
     "next": "latest",
+    "node-fetch": "^3.3.2",
     "react": "latest",
     "react-dom": "latest",
     "react-firebase-hooks": "^5.1.1",

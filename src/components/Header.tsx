@@ -35,7 +35,8 @@ const Header: React.FC<HeaderProps> = ({ isStart }) => {
   async function handleLogout() {
     try {
       await logout();
-      router.push('/');
+      // Force immediate redirect after logout to ensure clean state
+      window.location.href = '/';
     } catch (error) {
       console.error('Failed to logout:', error);
     }
