@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { Conversation, conversationManager, testFirebaseConnection } from '../utils/aiHelper';
 
 export default function StartPage() {
-  const { currentUser, loading: authLoading, logout } = useAuth();
+  const { currentUser, loading: authLoading, logout, updateDisplayName, updateProfilePhoto } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const [messages, setMessages] = useState<Array<{ id: number; role: 'user' | 'assistant'; content: string; timestamp?: number }>>([
     { id: 1, role: 'assistant', content: 'Welcome to MedAI! Ready for a quick quiz or to chat about a topic?', timestamp: Date.now() },
@@ -23,10 +25,18 @@ export default function StartPage() {
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [displayNameValue, setDisplayNameValue] = useState('');
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Authentication check - redirect if not authenticated or not verified
   useEffect(() => {
@@ -38,9 +48,23 @@ export default function StartPage() {
     }
   }, [currentUser, authLoading, router]);
 
+  // Initialize display name value when settings modal is opened
+  useEffect(() => {
+    if (showSettings && currentUser) {
+      setDisplayNameValue(currentUser.displayName || '');
+      // Clear any previous photo selection
+      setSelectedPhoto(null);
+      setPhotoPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, [showSettings, currentUser]);
+
   // Define startNewConversation function using useCallback
   const startNewConversation = useCallback(async () => {
     if (!currentUser?.uid) return;
+    
+    // Close mobile menu
+    setIsMobileMenuOpen(false);
     
     try {
       // Create a temporary conversation object (not saved to Firestore yet)
@@ -122,6 +146,80 @@ export default function StartPage() {
       ) : part
     );
   };
+
+  const handleSaveSettings = useCallback(async () => {
+    if (!currentUser) return;
+    
+    try {
+      setIsUpdatingProfile(true);
+      
+      // Save display name if it has changed
+      if (displayNameValue.trim() && displayNameValue !== currentUser.displayName) {
+        await updateDisplayName(displayNameValue.trim());
+      }
+      
+      handleCloseSettings();
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      // TODO: Show error message to user
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  }, [currentUser, displayNameValue, updateDisplayName]);
+
+  // Handle photo selection
+  const handlePhotoSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size must be less than 5MB');
+        return;
+      }
+      
+      setSelectedPhoto(file);
+      
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotoPreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
+  // Handle photo upload
+  const handlePhotoUpload = useCallback(async () => {
+    if (!selectedPhoto || !currentUser) return;
+    
+    try {
+      setIsUploadingPhoto(true);
+      await updateProfilePhoto(selectedPhoto);
+      
+      // Reset photo selection state
+      setSelectedPhoto(null);
+      setPhotoPreview(null);
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      alert('Failed to upload photo. Please try again.');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  }, [selectedPhoto, currentUser, updateProfilePhoto]);
+
+  // Handle settings modal close
+  const handleCloseSettings = useCallback(() => {
+    setShowSettings(false);
+    setSelectedPhoto(null);
+    setPhotoPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
 
   const handleRenameConversation = async (convId: string, newTitle: string) => {
     if (!currentUser?.uid || !newTitle.trim()) return;
@@ -263,6 +361,11 @@ export default function StartPage() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to close settings modal
+      if (e.key === 'Escape' && showSettings) {
+        setShowSettings(false);
+        return;
+      }
       // Escape to cancel editing
       if (e.key === 'Escape' && editingMessageId !== null) {
         cancelEditingMessage();
@@ -273,8 +376,8 @@ export default function StartPage() {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
-      // Escape to clear search (only if not editing)
-      if (e.key === 'Escape' && searchQuery.trim() && editingMessageId === null) {
+      // Escape to clear search (only if not editing and settings not open)
+      if (e.key === 'Escape' && searchQuery.trim() && editingMessageId === null && !showSettings) {
         setSearchQuery('');
       }
     };
@@ -286,7 +389,7 @@ export default function StartPage() {
       document.removeEventListener('click', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isRenaming, searchQuery, editingMessageId]);
+  }, [isRenaming, searchQuery, editingMessageId, showSettings]);
 
   // Load conversation history on component mount
   useEffect(() => {
@@ -429,6 +532,7 @@ export default function StartPage() {
     setMessages(conv.messages);
     localStorage.setItem('medai-current-conversation', conv.id);
     setShowHistory(false); // Close mobile modal if open
+    setIsMobileMenuOpen(false); // Close mobile menu
   };
 
   const deleteConversation = async (convId: string) => {
@@ -586,11 +690,23 @@ export default function StartPage() {
   };
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen bg-white dark:bg-gray-900 transition-colors relative">
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="flex flex-col w-64 bg-gray-900">
+      <div className={`
+        flex flex-col w-64 bg-gray-900 dark:bg-gray-800 transition-transform duration-300 ease-in-out z-50
+        lg:relative lg:translate-x-0
+        ${isMobileMenuOpen ? 'fixed inset-y-0 left-0 translate-x-0' : 'fixed inset-y-0 left-0 -translate-x-full lg:translate-x-0'}
+      `}>
         {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-3 border-b border-gray-700">
+        <div className="flex items-center justify-between p-3 border-b border-gray-700 dark:border-gray-600">
           <button
             onClick={startNewConversation}
             className="flex items-center gap-2 w-full px-3 py-2 text-sm font-medium text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
@@ -777,6 +893,16 @@ export default function StartPage() {
               </div>
             </div>
             <button 
+              onClick={() => setShowSettings(true)}
+              className="p-2 text-gray-400 hover:text-white rounded-md transition-colors"
+              title="Settings"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+            <button 
               onClick={handleLogout}
               className="p-2 text-gray-400 hover:text-white rounded-md transition-colors"
               title="Logout"
@@ -790,16 +916,30 @@ export default function StartPage() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 min-w-0">
+        {/* Mobile Header */}
+        <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">MedAI</h1>
+          <div className="w-8"></div>
+        </div>
+
         {/* Messages Area */}
         <div 
           ref={messagesContainerRef}
           className="flex-1 overflow-y-auto"
         >
-          <div className="max-w-3xl mx-auto px-4 py-6">
+          <div className="max-w-3xl mx-auto px-4 lg:px-6 py-4 lg:py-6">
             {messages.map((message) => (
-              <div key={message.id} className="mb-6">
-                <div className="flex items-start gap-4">
+              <div key={message.id} className="mb-4 lg:mb-6">
+                <div className="flex items-start gap-3 lg:gap-4">
                   {/* Avatar */}
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                     message.role === 'user' 
@@ -820,7 +960,7 @@ export default function StartPage() {
                   {/* Message Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-gray-900">
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">
                         {message.role === 'user' 
                           ? (currentUser?.displayName || 'You')
                           : 'MedAI Assistant'
@@ -835,7 +975,7 @@ export default function StartPage() {
                         <textarea
                           value={editingValue}
                           onChange={(e) => setEditingValue(e.target.value)}
-                          className="w-full p-3 border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           rows={Math.min(Math.max(editingValue.split('\n').length, 2), 8)}
                           autoFocus
                           onKeyDown={(e) => {
@@ -863,15 +1003,15 @@ export default function StartPage() {
                     ) : (
                       // Display mode
                       <div className="group relative">
-                        <div className="prose prose-gray max-w-none">
-                          <p className="text-gray-700 whitespace-pre-wrap">{message.content}</p>
+                        <div className="prose prose-gray dark:prose-invert max-w-none">
+                          <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{message.content}</p>
                         </div>
                         
                         {/* Edit button for user messages */}
                         {message.role === 'user' && (
                           <button
                             onClick={() => startEditingMessage(message.id, message.content)}
-                            className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all duration-200"
+                            className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-all duration-200"
                             title="Edit message"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -897,10 +1037,10 @@ export default function StartPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-gray-900">MedAI Assistant</span>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">MedAI Assistant</span>
                     </div>
-                    <div className="prose prose-gray max-w-none">
-                      <p className="text-gray-700">{typingText}<span className="animate-pulse">|</span></p>
+                    <div className="prose prose-gray dark:prose-invert max-w-none">
+                      <p className="text-gray-700 dark:text-gray-300">{typingText}<span className="animate-pulse">|</span></p>
                     </div>
                   </div>
                 </div>
@@ -934,9 +1074,9 @@ export default function StartPage() {
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-gray-200 bg-white px-4 py-4">
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 lg:px-4 py-3 lg:py-4">
           <div className="max-w-3xl mx-auto">
-            <div className="relative flex items-end gap-3">
+            <div className="relative flex items-end gap-2 lg:gap-3">
               <div className="flex-1">
                 <textarea
                   value={input}
@@ -944,8 +1084,8 @@ export default function StartPage() {
                   rows={1}
                   placeholder="Send a message..."
                   disabled={isLoading}
-                  className="w-full resize-none border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ minHeight: '52px', maxHeight: '200px' }}
+                  className="w-full resize-none border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg px-3 lg:px-4 py-2.5 lg:py-3 text-sm lg:text-base text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ minHeight: '44px', maxHeight: '200px' }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -958,7 +1098,7 @@ export default function StartPage() {
                 type="button"
                 onClick={handleSend}
                 disabled={isLoading || !input.trim()}
-                className="flex items-center justify-center w-12 h-12 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                className="flex items-center justify-center w-10 h-10 lg:w-12 lg:h-12 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
               >
                 {isLoading ? (
                   <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
@@ -972,6 +1112,230 @@ export default function StartPage() {
           </div>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 lg:p-6 border-b border-gray-200 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900">
+              <h2 className="text-lg lg:text-xl font-semibold text-gray-900 dark:text-gray-100">Settings</h2>
+              <button
+                onClick={handleCloseSettings}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+              {/* Profile Section */}
+              <div>
+                <h3 className="text-base lg:text-lg font-medium text-gray-900 dark:text-gray-100 mb-3 lg:mb-4">Profile</h3>
+                
+                {/* Profile Picture */}
+                <div className="space-y-4 mb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-full overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xl font-medium">
+                      {currentUser?.photoURL ? (
+                        <img 
+                          src={currentUser.photoURL} 
+                          alt="Profile" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        currentUser?.displayName?.[0] || currentUser?.email?.[0] || 'U'
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {currentUser?.displayName || 'No display name set'}
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">{currentUser?.email}</div>
+                      <div className="text-sm text-gray-500">{currentUser?.email}</div>
+                    </div>
+                  </div>
+                  
+                  {/* Photo Upload Section */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Profile Photo
+                    </label>
+                    
+                    {/* Photo Preview */}
+                    {photoPreview && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-md">
+                        <img 
+                          src={photoPreview} 
+                          alt="Preview" 
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-700">Selected: {selectedPhoto?.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {selectedPhoto && (selectedPhoto.size / 1024 / 1024).toFixed(2)} MB
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handlePhotoUpload}
+                          disabled={isUploadingPhoto}
+                          className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isUploadingPhoto ? 'Uploading...' : 'Upload'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPhoto(null);
+                            setPhotoPreview(null);
+                            if (fileInputRef.current) fileInputRef.current.value = '';
+                          }}
+                          className="px-3 py-1 text-xs font-medium text-gray-600 bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* File Input */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePhotoSelect}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        Choose Photo
+                      </button>
+                      <span className="text-xs text-gray-500">
+                        Max 5MB, JPG/PNG/GIF
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Display Name */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    value={displayNameValue}
+                    onChange={(e) => setDisplayNameValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter your display name"
+                  />
+                </div>
+              </div>
+
+              {/* Account Information */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Account Information</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Email:</span>
+                    <span className="text-gray-900 dark:text-gray-100">{currentUser?.email}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Email Verified:</span>
+                    <span className={`${currentUser?.emailVerified ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {currentUser?.emailVerified ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                  {currentUser?.metadata?.creationTime && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Member Since:</span>
+                      <span className="text-gray-900 dark:text-gray-100">
+                        {new Date(currentUser.metadata.creationTime).toLocaleDateString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Preferences */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Preferences</h3>
+                <div className="space-y-3">
+                  {/* Theme Toggle */}
+                  <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Theme</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">Choose your preferred color scheme</div>
+                    </div>
+                    <button
+                      onClick={toggleTheme}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      {theme === 'light' ? (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                          </svg>
+                          Dark
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                          </svg>
+                          Light
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                <div className="space-y-2">
+                  <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md transition-colors">
+                    Change Password
+                  </button>
+                  {!currentUser?.emailVerified && (
+                    <button className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-md transition-colors">
+                      Resend Email Verification
+                    </button>
+                  )}
+                  <button className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md transition-colors">
+                    Export Conversations
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 p-4 lg:p-6 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <button
+                onClick={handleCloseSettings}
+                className="w-full sm:w-auto px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveSettings}
+                disabled={isUpdatingProfile}
+                className="w-full sm:w-auto px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isUpdatingProfile ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -12,7 +12,8 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth, storage } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -26,6 +27,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   sendVerificationEmail: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  updateDisplayName: (displayName: string) => Promise<void>;
+  updateProfilePhoto: (file: File) => Promise<string>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -131,6 +134,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return sendPasswordResetEmail(auth, email);
   }
 
+  // Update display name
+  async function updateDisplayName(displayName: string) {
+    if (currentUser) {
+      await updateProfile(currentUser, { displayName });
+      // Trigger a re-render by updating the current user state
+      setCurrentUser({ ...currentUser, displayName });
+    } else {
+      throw new Error('No user is currently signed in');
+    }
+  }
+
+  // Update profile photo
+  async function updateProfilePhoto(file: File): Promise<string> {
+    if (!currentUser) {
+      throw new Error('No user is currently signed in');
+    }
+
+    try {
+      // Create a reference to the profile photo location
+      const photoRef = ref(storage, `profile-photos/${currentUser.uid}/${file.name}`);
+      
+      // Upload the file
+      const snapshot = await uploadBytes(photoRef, file);
+      
+      // Get the download URL
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      
+      // Update the user's profile with the new photo URL
+      await updateProfile(currentUser, { photoURL: downloadURL });
+      
+      // Trigger a re-render by updating the current user state
+      setCurrentUser({ ...currentUser, photoURL: downloadURL });
+      
+      return downloadURL;
+    } catch (error) {
+      console.error('Error uploading profile photo:', error);
+      throw error;
+    }
+  }
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -152,6 +195,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     sendVerificationEmail,
     resetPassword,
+    updateDisplayName,
+    updateProfilePhoto,
   };
 
   return (
