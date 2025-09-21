@@ -45,19 +45,51 @@ export interface ChatMessage {
     role: 'user' | 'assistant';
     content: string;
     timestamp?: number;
+    image?: {
+        data: string; // base64 encoded image
+        mimeType: string;
+        name: string;
+    };
 }
 
 // Type for a complete conversation
 export interface Conversation {
     id: string;
     title: string;
-    messages: Array<{ id: number; role: 'user' | 'assistant'; content: string; timestamp: number }>;
+    messages: Array<{ 
+        id: number; 
+        role: 'user' | 'assistant'; 
+        content: string; 
+        timestamp: number;
+        image?: {
+            data: string;
+            mimeType: string;
+            name: string;
+        };
+    }>;
     createdAt: number;
     updatedAt: number;
     userId: string; // Added for user-specific conversations
 }
 
 // Cloud-based conversation management functions using Firestore
+// Helper function to clean messages for Firestore (remove undefined fields)
+const cleanMessagesForFirestore = (messages: ChatMessage[]): any[] => {
+    return messages.map(msg => {
+        const cleanMsg: any = {
+            role: msg.role,
+            content: msg.content
+        };
+        
+        // Only add image if it exists and is not null/undefined
+        if (msg.image && msg.image.data && msg.image.mimeType && msg.image.name) {
+            cleanMsg.image = msg.image;
+        }
+        
+        return cleanMsg;
+    });
+};
+
 export const conversationManager = {
     // Get all conversations for a specific user from Firestore
     getAllConversations: async (userId: string): Promise<Conversation[]> => {
@@ -163,7 +195,7 @@ export const conversationManager = {
             const conversationRef = doc(db, 'conversations', conversation.id);
             await updateDoc(conversationRef, {
                 title: conversation.title,
-                messages: conversation.messages,
+                messages: cleanMessagesForFirestore(conversation.messages),
                 updatedAt: conversation.updatedAt
             });
         } catch (error) {
@@ -265,7 +297,7 @@ export const generateResponse = async (conversationHistory: ChatMessage[]): Prom
                     temperature: 0.7,
                     topK: 40,
                     topP: 0.95,
-                    maxOutputTokens: 1000, // Limit response length for speed
+                    maxOutputTokens: 4000, // Limit of AI's response length (in tokens)
                 }
             });
             console.log('Model created successfully');
@@ -328,6 +360,137 @@ Please respond as MedAI to continue this medical education conversation:`;
     }
     
     throw new Error('Failed to generate response after multiple attempts.');
+};
+
+// Generate response with image analysis support
+export const generateResponseWithImage = async (
+    conversationHistory: ChatMessage[], 
+    imageData?: { data: string; mimeType: string; name: string }
+): Promise<string> => {
+    const maxRetries = 3;
+    const baseDelay = 1000;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`Starting AI response with image generation (attempt ${attempt}/${maxRetries})...`);
+            
+            // Get the generative model
+            const model = genAI.getGenerativeModel({ 
+                model: 'gemini-2.5-flash',
+                generationConfig: {
+                    temperature: 0.7,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 1500, // Increased for image analysis
+                }
+            });
+
+            // Build conversation context
+            const recentHistory = conversationHistory.slice(-10);
+            let conversationText = '';
+            recentHistory.forEach(msg => {
+                if (msg.role === 'user') {
+                    conversationText += `Student: ${msg.content}${msg.image ? ' [Image uploaded]' : ''}\n`;
+                } else {
+                    conversationText += `MedAI: ${msg.content}\n`;
+                }
+            });
+
+            // Enhanced prompt for medical image analysis
+            const prompt = `You are MedAI, a medical education AI assistant specializing in medical image analysis. When analyzing medical images:
+
+1. **Educational Focus**: Frame your analysis as a learning opportunity
+2. **Identify Key Findings**: Point out significant anatomical structures and abnormalities
+3. **Teaching Approach**: Ask guiding questions to help the student learn
+4. **Safety Disclaimer**: Always remind that this is for educational purposes only
+5. **Encourage Critical Thinking**: Help students develop diagnostic reasoning
+
+Previous conversation:
+${conversationText}
+
+IMPORTANT: This analysis is for educational purposes only and should not be used for actual medical diagnosis. Always encourage students to consult with healthcare professionals for real clinical cases.
+
+Please analyze the uploaded medical image and provide educational insights:`;
+
+            // Prepare content for API call
+            const parts: Array<string | { inlineData: { data: string; mimeType: string } }> = [prompt];
+            
+            // Add image if provided
+            if (imageData) {
+                parts.push({
+                    inlineData: {
+                        data: imageData.data,
+                        mimeType: imageData.mimeType
+                    }
+                });
+            }
+
+            console.log('Calling generateContent with image...');
+            const result = await model.generateContent(parts);
+            
+            const response = await result.response;
+            const text = response.text();
+            
+            console.log('Image analysis completed, response length:', text.length);
+            return text;
+            
+        } catch (error: any) {
+            console.error(`Error on attempt ${attempt}:`, error);
+            
+            const isRetryable = error?.message?.includes('503') || 
+                              error?.message?.includes('Service Unavailable') ||
+                              error?.message?.includes('overloaded');
+            
+            if (isRetryable && attempt < maxRetries) {
+                const delay = baseDelay * Math.pow(2, attempt - 1);
+                console.log(`Retrying in ${delay}ms...`);
+                await sleep(delay);
+                continue;
+            }
+            
+            if (isRetryable) {
+                throw new Error('The AI service is temporarily overloaded. Please wait a moment and try again.');
+            } else {
+                throw new Error('Failed to analyze image. Please try again.');
+            }
+        }
+    }
+    
+    throw new Error('Failed to generate response after multiple attempts.');
+};
+
+// Helper function to convert file to base64
+export const fileToBase64 = (file: File): Promise<{ data: string; mimeType: string }> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result as string;
+            // Remove the data URL prefix to get just the base64 data
+            const base64Data = result.split(',')[1];
+            resolve({
+                data: base64Data,
+                mimeType: file.type
+            });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+};
+
+// Validate image file
+export const validateImageFile = (file: File): { valid: boolean; error?: string } => {
+    // Check file size (max 20MB)
+    if (file.size > 20 * 1024 * 1024) {
+        return { valid: false, error: 'File size must be less than 20MB' };
+    }
+    
+    // Check file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    if (!allowedTypes.includes(file.type)) {
+        return { valid: false, error: 'File must be a medical image (JPG, PNG, WebP, HEIC, HEIF)' };
+    }
+    
+    return { valid: true };
 };
 
 export const validateInput = (input: string): boolean => {

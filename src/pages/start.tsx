@@ -8,7 +8,7 @@ export default function StartPage() {
   const { currentUser, loading: authLoading, logout, updateDisplayName, updateProfilePhoto } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
-  const [messages, setMessages] = useState<Array<{ id: number; role: 'user' | 'assistant'; content: string; timestamp?: number }>>([
+  const [messages, setMessages] = useState<Array<{ id: number; role: 'user' | 'assistant'; content: string; timestamp?: number; image?: { data: string; mimeType: string; name: string } }>>([
     { id: 1, role: 'assistant', content: 'Welcome to MedAI! Ready for a quick quiz or to chat about a topic?', timestamp: Date.now() },
   ]);
   const [input, setInput] = useState('');
@@ -32,6 +32,80 @@ export default function StartPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{ data: string; mimeType: string; name: string } | null>(null);
+  
+  // Image compression function (moved from ImageUpload component)
+  const compressImage = (file: File, maxWidth: number = 800, quality: number = 0.8): Promise<{ data: string; mimeType: string }> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      img.onload = () => {
+        let { width, height } = img;
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        ctx?.drawImage(img, 0, 0, width, height);
+        
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        const base64Data = compressedDataUrl.split(',')[1];
+        
+        resolve({
+          data: base64Data,
+          mimeType: 'image/jpeg'
+        });
+      };
+      
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  // Handle image selection from + button
+  const handleImageSelect = async (file: File) => {
+    try {
+      // Validate file size (max 20MB)
+      if (file.size > 20 * 1024 * 1024) {
+        alert('Image is too large. Please use an image smaller than 20MB.');
+        return;
+      }
+      
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+      if (!allowedTypes.includes(file.type)) {
+        alert('Please select a valid image file (JPG, PNG, WebP, HEIC, HEIF).');
+        return;
+      }
+
+      console.log('Compressing image...');
+      const compressed = await compressImage(file);
+      
+      // Check if compressed size is still reasonable
+      if (compressed.data.length > 500000) {
+        const moreCompressed = await compressImage(file, 600, 0.6);
+        setSelectedImage({
+          data: moreCompressed.data,
+          mimeType: moreCompressed.mimeType,
+          name: file.name
+        });
+      } else {
+        setSelectedImage({
+          data: compressed.data,
+          mimeType: compressed.mimeType,
+          name: file.name
+        });
+      }
+    } catch (error) {
+      console.error('Error processing image:', error);
+      alert('Failed to process image. Please try again.');
+    }
+  };
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -130,6 +204,38 @@ export default function StartPage() {
     const filtered = searchConversations(searchQuery, conversations);
     setFilteredConversations(filtered);
   }, [searchQuery, conversations, searchConversations]);
+
+  // Global paste functionality for images
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      if (!e.clipboardData) return;
+
+      const items = Array.from(e.clipboardData.items);
+      const imageItem = items.find(item => item.type.startsWith('image/'));
+      
+      if (!imageItem) return;
+
+      // Smart detection: if user is typing and has text too, let them paste text
+      const activeElement = document.activeElement;
+      const isTypingInTextarea = activeElement instanceof HTMLTextAreaElement;
+      
+      if (isTypingInTextarea && e.clipboardData.getData('text/plain')) {
+        return; // Let normal text paste work
+      }
+      
+      // Handle image paste
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const file = imageItem.getAsFile();
+      if (file) {
+        await handleImageSelect(file);
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, []);
 
   // Helper function to highlight search terms
   const highlightSearchTerm = (text: string, query: string) => {
@@ -422,21 +528,18 @@ export default function StartPage() {
         if (currentConvId) {
           const foundConv = savedConversations.find(conv => conv.id === currentConvId);
           if (foundConv) {
-            setCurrentConversation(foundConv);
-            setMessages(foundConv.messages);
-            return;
+            // Don't auto-load the stored conversation - always start fresh
+            // Clear the stored conversation ID
+            localStorage.removeItem('medai-current-conversation');
           }
         }
         
-        // Create new conversation if none exists
+        // Create new conversation if none exists or always start fresh
         if (savedConversations.length === 0) {
           await startNewConversation();
         } else {
-          // Load the most recent conversation
-          const mostRecent = savedConversations[0];
-          setCurrentConversation(mostRecent);
-          setMessages(mostRecent.messages);
-          localStorage.setItem('medai-current-conversation', mostRecent.id);
+          // Always start with a new conversation instead of loading the most recent
+          await startNewConversation();
         }
       } catch (error) {
         console.error('Error loading conversations:', error);
@@ -589,10 +692,12 @@ export default function StartPage() {
   };
 
   async function handleSend() {
-    if (!input.trim() || isLoading) return;
+    if ((!input.trim() && !selectedImage) || isLoading) return;
 
     const userMessage = input.trim();
+    const imageData = selectedImage;
     setInput('');
+    setSelectedImage(null); // Clear selected image after sending
     setIsLoading(true);
 
     // Handle temporary conversations - create actual conversation in Firestore when user sends first message
@@ -625,7 +730,13 @@ export default function StartPage() {
     }
 
     // Add user message
-    const userMsg = { id: Date.now(), role: 'user' as const, content: userMessage, timestamp: Date.now() };
+    const userMsg = { 
+      id: Date.now(), 
+      role: 'user' as const, 
+      content: userMessage || (imageData ? 'Uploaded medical image for analysis' : ''), 
+      timestamp: Date.now(),
+      image: imageData || undefined
+    };
     setMessages(prev => [...prev, userMsg]);
 
     console.log('User message added, current conversation:', activeConversation?.id);
@@ -640,16 +751,24 @@ export default function StartPage() {
           input: userMessage,
           conversationHistory: messages.map(msg => ({
             role: msg.role,
-            content: msg.content
-          }))
+            content: msg.content,
+            image: msg.image
+          })),
+          image: imageData
         }),
       });
 
+      console.log('API Response status:', response.status);
+      console.log('API Response headers:', response.headers);
+      
       if (!response.ok) {
-        throw new Error('Failed to get response');
+        const errorText = await response.text();
+        console.error('API Error response:', errorText);
+        throw new Error(`API request failed: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('API Response data:', data);
       
       // Simulate typing animation
       await simulateTyping(data.response, () => {
@@ -663,7 +782,21 @@ export default function StartPage() {
 
     } catch (error) {
       console.error('Error sending message:', error);
-      const errorMsg = { id: Date.now() + 1, role: 'assistant' as const, content: 'Sorry, I encountered an error. Please try again.', timestamp: Date.now() };
+      
+      let errorMessage = 'Sorry, I encountered an error. Please try again.';
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('API request failed')) {
+          errorMessage = `API Error: ${error.message}. Please check your API key and try again.`;
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+        } else if (imageData) {
+          errorMessage = 'Failed to process the uploaded image. Please try uploading a different image or check the image format.';
+        }
+      }
+      
+      const errorMsg = { id: Date.now() + 1, role: 'assistant' as const, content: errorMessage, timestamp: Date.now() };
       setMessages(prev => [...prev, errorMsg]);
       
       // Refresh conversations list even on error
@@ -690,7 +823,7 @@ export default function StartPage() {
   };
 
   return (
-    <div className="flex h-screen bg-white dark:bg-gray-900 transition-colors relative">
+    <div className="flex h-screen bg-white dark:bg-gray-900 transition-colors relative overflow-hidden" style={{ height: '100dvh' }}>
       {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
         <div 
@@ -704,7 +837,7 @@ export default function StartPage() {
         flex flex-col w-64 bg-gray-900 dark:bg-gray-800 transition-transform duration-300 ease-in-out z-50
         lg:relative lg:translate-x-0
         ${isMobileMenuOpen ? 'fixed inset-y-0 left-0 translate-x-0' : 'fixed inset-y-0 left-0 -translate-x-full lg:translate-x-0'}
-      `}>
+      `} style={{ height: '100dvh' }}>
         {/* Sidebar Header */}
         <div className="flex items-center justify-between p-3 border-b border-gray-700 dark:border-gray-600">
           <button
@@ -752,7 +885,7 @@ export default function StartPage() {
               {filteredConversations.map((conv) => (
                 <div
                   key={conv.id}
-                  className={`relative group rounded-md transition-colors ${
+                  className={`relative group rounded-md transition-colors cursor-pointer min-h-[44px] flex items-center ${
                     currentConversation?.id === conv.id
                       ? 'bg-gray-800'
                       : 'hover:bg-gray-800'
@@ -816,7 +949,7 @@ export default function StartPage() {
                             e.stopPropagation();
                             setOpenMenuId(openMenuId === conv.id ? null : conv.id);
                           }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-white transition-all rounded"
+                          className="opacity-0 group-hover:opacity-100 sm:opacity-100 p-2 text-gray-400 hover:text-white transition-all rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
                         >
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                             <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
@@ -916,12 +1049,12 @@ export default function StartPage() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 min-w-0">
+      <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 min-w-0 relative">
         {/* Mobile Header */}
-        <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+        <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex-shrink-0">
           <button
             onClick={() => setIsMobileMenuOpen(true)}
-            className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+            className="p-3 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -934,9 +1067,10 @@ export default function StartPage() {
         {/* Messages Area */}
         <div 
           ref={messagesContainerRef}
-          className="flex-1 overflow-y-auto"
+          className="flex-1 overflow-y-auto pb-2"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          <div className="max-w-3xl mx-auto px-4 lg:px-6 py-4 lg:py-6">
+          <div className="max-w-3xl mx-auto px-4 lg:px-6 py-4 lg:py-6 pb-6">
             {messages.map((message) => (
               <div key={message.id} className="mb-4 lg:mb-6">
                 <div className="flex items-start gap-3 lg:gap-4">
@@ -969,8 +1103,8 @@ export default function StartPage() {
                     </div>
                     
                     {/* Message content with editing capability */}
-                    {editingMessageId === message.id ? (
-                      // Editing mode
+                    {editingMessageId === message.id && message.role === 'user' ? (
+                      // Editing mode (only for user messages)
                       <div className="space-y-2">
                         <textarea
                           value={editingValue}
@@ -1003,6 +1137,29 @@ export default function StartPage() {
                     ) : (
                       // Display mode
                       <div className="group relative">
+                        {/* Image display for user messages */}
+                        {message.role === 'user' && message.image && (
+                          <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center">
+                                <span className="text-lg">🏥</span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Medical Image Uploaded</p>
+                                <p className="text-xs text-blue-600 dark:text-blue-400">{message.image.name}</p>
+                              </div>
+                            </div>
+                            {/* Display the actual image */}
+                            <div className="mt-2">
+                              <img 
+                                src={`data:${message.image.mimeType};base64,${message.image.data}`}
+                                alt={message.image.name}
+                                className="max-w-full max-h-64 rounded-lg border border-gray-200 dark:border-gray-600 object-contain"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="prose prose-gray dark:prose-invert max-w-none">
                           <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{message.content}</p>
                         </div>
@@ -1074,18 +1231,63 @@ export default function StartPage() {
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 lg:px-4 py-3 lg:py-4">
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 lg:px-4 py-3 lg:py-4 pb-safe" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
           <div className="max-w-3xl mx-auto">
-            <div className="relative flex items-end gap-2 lg:gap-3">
-              <div className="flex-1">
+            <div className="relative flex items-center gap-2 lg:gap-3">
+              {/* Attachment Button */}
+              <button
+                type="button"
+                onClick={() => document.getElementById('file-input')?.click()}
+                className="flex-shrink-0 w-12 h-12 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-center transition-colors min-h-[44px] min-w-[44px]"
+                title="Attach medical image"
+              >
+                <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+              
+              {/* Hidden file input */}
+              <input
+                id="file-input"
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    // Use the same compression logic from ImageUpload
+                    handleImageSelect(file);
+                  }
+                }}
+                className="hidden"
+              />
+              
+              <div className="flex-1 relative">
+                {/* Show selected image preview */}
+                {selectedImage && (
+                  <div className="mb-2 flex items-center justify-between p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm">🏥</span>
+                      <span className="text-sm text-blue-800 dark:text-blue-200 truncate">
+                        {selectedImage.name}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setSelectedImage(null)}
+                      className="text-red-500 hover:text-red-700 text-sm ml-2"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   rows={1}
-                  placeholder="Send a message..."
+                  placeholder="Send a message or paste an image..."
                   disabled={isLoading}
-                  className="w-full resize-none border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg px-3 lg:px-4 py-2.5 lg:py-3 text-sm lg:text-base text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ minHeight: '44px', maxHeight: '200px' }}
+                  className="w-full resize-none border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg px-3 lg:px-4 py-3 text-base lg:text-base text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed scrollbar-hide"
+                  style={{ height: '44px', maxHeight: '200px', overflow: 'hidden', fontSize: '16px' }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -1097,8 +1299,8 @@ export default function StartPage() {
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={isLoading || !input.trim()}
-                className="flex items-center justify-center w-10 h-10 lg:w-12 lg:h-12 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                disabled={isLoading || (!input.trim() && !selectedImage)}
+                className="flex items-center justify-center w-12 h-12 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors min-h-[44px] min-w-[44px]"
               >
                 {isLoading ? (
                   <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
