@@ -1,5 +1,5 @@
 # 🩺 MedAI - AI-Powered Medical Learning Assistant
-
+*
 **A Next.js web application that revolutionizes medical education through AI-powered image analysis and personalized learning assistance.**
 
 ---
