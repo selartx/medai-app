@@ -4,19 +4,6 @@
 
 ---
 
-## 🚀 Live Demo
-
-**Try it now:** [MedAI App](https://medai-app.vercel.app) *(or your deployed URL)*
-
-### Demo Credentials
-```
-Email: demo@medai.com
-Password: demo123
-```
-*Note: Use any valid email format for testing - Firebase auth is configured for demo purposes*
-
----
-
 ## ✨ Key Features
 
 ### 🔬 **Medical Image Analysis**
@@ -118,8 +105,8 @@ npm run lint
 ## 🎯 Usage Guide
 
 ### Getting Started
-1. **Sign Up/Login:** Create an account or use demo credentials
-2. **Navigate to Chat:** Click "Start Learning" to access the main interface
+1. **Sign Up/Login:** Create an account and login
+2. **Navigate to Chat:** It will automatically redirect you to the chat
 3. **Upload Images:** Use the image upload button to analyze medical images
 4. **Ask Questions:** Type medical questions or request explanations
 5. **View History:** Access previous conversations and analyses
@@ -136,36 +123,6 @@ npm run lint
 - Differential diagnosis suggestions
 - Medical terminology clarification
 - Study guidance and learning recommendations
-
----
-
-## 🏗️ Project Structure
-
-```
-medai-app/
-├── src/
-│   ├── components/           # Reusable UI components
-│   │   └── Header.tsx       # Navigation header
-│   ├── pages/               # Next.js pages
-│   │   ├── api/            # API routes
-│   │   │   └── ai.ts       # Gemini AI integration
-│   │   ├── _app.tsx        # App configuration
-│   │   ├── _document.tsx   # Document structure
-│   │   ├── index.tsx       # Landing page
-│   │   ├── start.tsx       # Main chat interface
-│   │   ├── login.tsx       # Authentication
-│   │   └── signup.tsx      # User registration
-│   ├── styles/             # Global styles
-│   │   ├── globals.css     # Base styles
-│   │   └── tailwind.css    # Tailwind imports
-│   ├── types/              # TypeScript definitions
-│   │   └── index.ts        # Shared types
-│   └── utils/              # Utility functions
-│       └── aiHelper.ts     # AI integration helpers
-├── public/                 # Static assets
-├── .env.local             # Environment variables
-└── package.json           # Dependencies & scripts
-```
 
 ---
 
@@ -196,6 +153,11 @@ npm run build
 ## 🚀 Deployment
 
 ### Vercel (Recommended)
+Don't forget to test the build by running the following command:
+```bash
+npm run build
+```
+After making sure it works, do the following:
 1. Connect GitHub repository to Vercel
 2. Add environment variables in Vercel dashboard
 3. Deploy automatically on push to main branch
@@ -213,46 +175,12 @@ npm run build
 - **Authentication:** Secure JWT-based authentication with Firebase Auth
 - **API Security:** Rate limiting and input validation on all endpoints
 - **Privacy:** Images and conversations are user-specific and private
-- **Compliance:** Built with healthcare data privacy considerations
 
 ---
 
 ## 🤝 Contributing
 
-This is a hackathon project, but contributions are welcome!
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👨‍💻 Hackathon Team
-
-**Built for [Hackathon Name] - September 2025**
-
-- Medical AI integration specialist
-- Full-stack development
-- UI/UX design and mobile optimization
-- Firebase backend architecture
-
----
-
-## 🎉 Acknowledgments
-
-- **Google Gemini 2.5 Flash** for powerful AI capabilities
-- **Firebase** for backend infrastructure
-- **Next.js** for the robust React framework
-- **Tailwind CSS** for rapid UI development
-- Medical community for inspiration and feedback
+This is a hackathon project, but suggestions and contributions are welcome!
 
 ---
 
