@@ -65,7 +65,7 @@
    ```
 
 3. **Environment Configuration:**
-   Create `.env.local` file in root directory:
+   Create `.env` file in root directory:
    ```env
    # Firebase Configuration
    NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
